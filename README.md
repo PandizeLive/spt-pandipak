@@ -1,6 +1,6 @@
 # Pandipak for SPT 4.1.6
 
-**[Download SPTpp Launcher for Windows](https://github.com/PandizeLive/spt-pandipak/releases/download/launcher-v1.0.0/SPTpp-Launcher.exe)**
+**[Download SPTpp Launcher for Windows](https://github.com/PandizeLive/spt-pandipak/releases/download/launcher-v1.0.1/SPTpp-Launcher.exe)**
 
 ## One-time setup
 
@@ -13,6 +13,8 @@ The public release fetches third-party mod files directly from their pinned auth
 ## Update
 
 Open **SPTpp Launcher**. It checks GitHub on startup. Click **Check for updates** to check again. When an update is available, close Tarkov and click the gold-bordered **Update Pandipak** button. The installer carries personal settings forward and merges new mod defaults. Keep the `.msi-player-pack` folder with your game for its update receipt and backups. Existing players can continue using **Update Pandipak.cmd**.
+
+Launcher 1.0.0 users can close it and replace the EXE once using the download above. Starting with launcher 1.0.1, **Update launcher** appears when a newer executable is available. It verifies the download and reopens the same installation. Host-managed installations can also check the latest published player-pack version.
 
 If a mod author removes a pinned download or its contents change, first installation stops and identifies the source. Retry after the host restores a verified source.
 
