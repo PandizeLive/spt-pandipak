@@ -1,5 +1,6 @@
 """Prepare the exact pinned player files, then use Pandipak's transactional installer."""
 from pathlib import Path
+from functools import lru_cache
 import hashlib
 import importlib.util
 import json
@@ -17,9 +18,26 @@ spec = importlib.util.spec_from_file_location("pack_setup",KIT/"setup.py")
 setup = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(setup)
 
-def fetch(group, part, cache):
+@lru_cache(maxsize=1)
+def archive_hashes():
+    return setup.read_json(KIT/"archive-hashes.json")
+
+
+def copy_slice(archive, part, target):
+    with archive.open("rb") as source, target.open("wb") as dest:
+        source.seek(part["start"])
+        remaining = part["length"]
+        while remaining:
+            chunk = source.read(min(1024 * 1024, remaining))
+            if not chunk:
+                raise ValueError("The source archive ended inside a pinned range.")
+            dest.write(chunk)
+            remaining -= len(chunk)
+
+
+def fetch(group, part, cache, fetched):
     path=cache/part["sha"]
-    if path.exists() and setup.digest(path)==part["sha"]:
+    if path.is_file() and (path in fetched or setup.digest(path)==part["sha"]):
         return path
     curl=Path(os.environ["SystemRoot"])/"System32/curl.exe"
     with tempfile.NamedTemporaryFile(dir=cache,delete=False) as f:
@@ -28,20 +46,42 @@ def fetch(group, part, cache):
         args=[str(curl),"-q","--fail","--location","--proto","=https","--proto-redir","=https",
               "--silent","--show-error","--retry","2","--connect-timeout","25","--speed-time","90",
               "--speed-limit","512","--max-filesize",str(part["length"]),"-o",str(tmp)]
-        if part["length"]!=group["size"]:
+        sliced = part["length"] != group["size"]
+        whole = None
+        if sliced:
+            whole = dict(start=0, length=group["size"], sha=archive_hashes()[group["url"]])
             args+=["--range",f'{part["start"]}-{part["start"]+part["length"]-1}']
-        with subprocess.Popen(args+[group["url"]]) as download:
-            while True:
-                try:
-                    status=download.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    with tmp.open("rb") as partial:
-                        received=partial.seek(0,os.SEEK_END)
-                    print(f'{group["name"]} · {received//1048576:,} / {part["length"]//1048576:,} MiB',flush=True)
-                    continue
-                if status:
-                    raise RuntimeError(f"Download failed (curl {status}). Retry the installation.")
+        url = group["url"]
+        use_whole = whole is not None and (cache/whole["sha"]).is_file()
+        while not use_whole:
+            # curl can drop Range on a cross-host redirect. Capture the final URL
+            # privately so a second HTTPS request can start there with the range.
+            with subprocess.Popen(args+["--write-out", "%{url_effective}", "--globoff", "--", url],
+                                  stdout=subprocess.PIPE) as download:
+                while True:
+                    try:
+                        output, _ = download.communicate(timeout=5)
+                        break
+                    except subprocess.TimeoutExpired:
+                        received = tmp.stat().st_size
+                        print(f'{group["name"]} · {received//1048576:,} / {part["length"]//1048576:,} MiB',flush=True)
+                status = download.returncode
+            if status == 0:
                 break
+            if sliced and status in (33, 63):
+                final_url = output.decode("utf-8").strip()
+                if url == group["url"] and final_url != url and final_url.startswith("https://"):
+                    print(f'{group["name"]} - retrying the byte range at the download host.', flush=True)
+                    url = final_url
+                    continue
+                print(f'{group["name"]} - the host requires a full download ({group["size"]:,} bytes).', flush=True)
+                use_whole = True
+                break
+            raise RuntimeError(f"Download failed (curl {status}). Retry the installation.")
+        if use_whole:
+            archive = fetch(group, whole, cache, fetched)
+            fetched.add(archive)
+            copy_slice(archive, part, tmp)
         if tmp.stat().st_size!=part["length"] or setup.digest(tmp)!=part["sha"]:
             raise ValueError("The downloaded bytes differ from the pinned release for "+group["name"]+".")
         os.replace(tmp,path)
@@ -118,7 +158,7 @@ def prepare_sources(groups, game, files, cache, fetched):
                    for e in part["entries"]):
                 continue
             try:
-                archive=fetch(g,part,cache)
+                archive=fetch(g,part,cache,fetched)
                 unpack(g,part,archive,KIT/"files",files)
                 fetched.add(archive)
             except Exception as error:
@@ -136,7 +176,7 @@ def prepare_volume(volume, game, files, cache, fetched):
             break
     else:
         part = dict(sha=volume["sha256"], length=volume["size"], start=0)
-        archive = fetch(volume, part, cache)
+        archive = fetch(volume, part, cache, fetched)
         fetched.add(archive)
     with zipfile.ZipFile(archive) as z:
         if z.namelist() == ["sources.json"]:

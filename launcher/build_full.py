@@ -86,6 +86,7 @@ def build(kit,recipe,locations,out,tag,seven):
     base=Path(__file__).resolve().parent
     out.mkdir(parents=True,exist_ok=True)
     sources=[]
+    archive_hashes={}
     local={}
     paths=json.loads(locations.read_bytes())
     mapped=set()
@@ -100,6 +101,8 @@ def build(kit,recipe,locations,out,tag,seven):
         elif zipfile.is_zipfile(path):parts=zip_parts(path,members)
         else:parts=solid_parts(path,members,seven)
         sources.append(dict(name=path.stem,url=group["url"],size=group["size"],parts=parts))
+        if any(part["length"] != group["size"] for part in parts):
+            archive_hashes[group["url"]] = group["sha"]
         for part in parts: local[part["sha"]]=[str(path),part["start"],part["length"]]
     capsule=out/"Pandipak-full.zip"
     with zipfile.ZipFile(kit) as original,zipfile.ZipFile(capsule,"w",zipfile.ZIP_DEFLATED,compresslevel=1) as z:
@@ -113,6 +116,7 @@ def build(kit,recipe,locations,out,tag,seven):
             z.writestr("files/"+rel,original.read("files/"+rel))
         z.write(base/"full_install.py","full_install.py")
         z.writestr("sources.json",json.dumps(sources,separators=(",",":")))
+        z.writestr("archive-hashes.json",json.dumps(archive_hashes,separators=(",",":")))
     with capsule.open("rb") as f:sha=hashlib.file_digest(f,"sha256").hexdigest()
     descriptor=dict(url=f"https://github.com/PandizeLive/spt-pandipak/releases/download/{tag}/{capsule.name}",
                     sha256=sha,receipt=hashlib.sha256(raw).hexdigest())
