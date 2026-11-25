@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 import subprocess
 import zipfile
@@ -12,6 +13,26 @@ HERE = Path(__file__).resolve().parent
 def fingerprint(manifest):
     receipt = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode()
     return hashlib.sha256(receipt).hexdigest()
+
+def write_index(path, tag, releases):
+    entries = []
+    seen = set()
+    for release in releases:
+        steps = []
+        for line in release["body"].splitlines():
+            if not line.startswith("Pandipak-Update "):
+                continue
+            value = line.removeprefix("Pandipak-Update ")
+            if not re.fullmatch(r"[0-9a-f]{64}( [0-9a-f]{64}){2}", value):
+                raise ValueError("Invalid release metadata.")
+            source = value.split()[0]
+            if source in seen:
+                raise ValueError("Overlapping release paths.")
+            seen.add(source)
+            steps.append(value)
+        if steps:
+            entries.append({"tag":release["tag_name"], "steps":steps})
+    path.write_text(json.dumps({"latest":tag,"releases":entries}, indent=2)+"\n",encoding="utf8")
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -47,18 +68,16 @@ def main():
                 payload.append("files/"+rel)
                 if row["mode"]=="file": print("Changed file:",rel)
         payload += [k for k in new.namelist() if k.startswith(("runtime/","notices/"))]
-        if "server-address.txt" not in new.namelist():
-            raise ValueError("Rebuild the group installer with separate host settings before publishing.")
-        endpoint = new.read("server-address.txt").decode("utf8").strip()
-        host = endpoint.rsplit(":", 1)[0].strip("[]")
-        if not host:
-            raise ValueError("Missing host address in the group installer.")
+        if "server-address.txt" in new.namelist() or b"def server_settings(" in new.read("setup.py"):
+            raise ValueError("Rebuild the player installer without bundled server settings.")
         payload += ["setup.py","manifest.json"]
         with zipfile.ZipFile(path,"w",zipfile.ZIP_DEFLATED,compresslevel=1) as out:
             for key in payload:
                 content=new.read(key)
-                if any(host.encode(encoding) in content for encoding in ("utf8","utf-16le")):
-                    raise ValueError("Group host address in public payload: "+key)
+                if not key.startswith(("runtime/","notices/")):
+                    visible = content.replace(b"\x00", b"").lower()
+                    if b".ts.net" in visible or re.search(rb"\b100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+\b",visible):
+                        raise ValueError("Tailnet address in player payload: "+key)
                 if key.startswith("files/") and hashlib.sha256(content).hexdigest()!=after["files"][key[6:]]["sha"]:
                     raise ValueError("Hash mismatch in approved installer: "+key)
                 out.writestr(key,content)
@@ -75,18 +94,23 @@ def main():
     notes.write_text("Run Update Pandipak.cmd from the extracted updater.\n\n"
                      + "".join(f"Pandipak-Update {source} {fingerprint(after)} {checksum}\n" for source in baselines),encoding="utf8")
     print(path, path.stat().st_size, "bytes")
+    index = args.out/"Pandipak-index.json"
+    current_release = {"tag_name":args.tag, "body":notes.read_text(encoding="utf8")}
+    write_index(index, args.tag, [current_release])
     if args.publish:
         def gh(*arguments):
             return subprocess.check_output(["gh",*arguments],text=True).strip()
         if gh("repo","view",REPO,"--json","visibility","--jq",".visibility")!="PUBLIC":
             raise ValueError("Expected the public player update repository.")
-        releases=json.loads(gh("api",f"repos/{REPO}/releases?per_page=100"))
+        pages=json.loads(gh("api","--paginate","--slurp",f"repos/{REPO}/releases?per_page=100"))
+        releases=[r for page in pages for r in page if not r["draft"] and not r["prerelease"]]
         if releases:
             latest=json.loads(gh("api",f"repos/{REPO}/releases/latest"))
             if not any(line.startswith("Pandipak-Update ") and len(line.split())==4 and
                        line.split()[2]==fingerprint(before) for line in latest["body"].splitlines()):
                 raise ValueError("Previous installer must match the latest published release.")
-        gh("release","create",args.tag,str(path),str(starter),"--repo",REPO,
+        write_index(index, args.tag, releases+[current_release])
+        gh("release","create",args.tag,str(path),str(starter),str(index),"--repo",REPO,
            "--title",args.tag,"--notes-file",str(notes),"--draft")
         print(gh("release","edit",args.tag,"--draft=false","--latest","--repo",REPO))
 

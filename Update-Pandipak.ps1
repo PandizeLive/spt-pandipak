@@ -22,23 +22,19 @@ function Get-Checksum([string]$Path) {
 $web = New-Object System.Net.WebClient
 $web.Headers['User-Agent'] = 'Pandipak-Windows-Updater'
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-$api = "https://api.github.com/repos/$repo/releases"
-$latest = ($web.DownloadString("$api/latest") | ConvertFrom-Json).tag_name
+$index = $web.DownloadString("https://github.com/$repo/releases/latest/download/Pandipak-index.json") | ConvertFrom-Json
+$latest = $index.latest
 $versions = @{}
 $steps = @{}
-for ($page = 1; ; $page++) {
-    $releases = $web.DownloadString("${api}?per_page=100&page=$page") | ConvertFrom-Json
-    foreach ($release in $releases) {
-        if ($release.draft -or $release.prerelease) { continue }
-        foreach ($entry in ($release.body -split '\r?\n')) {
-            if ($entry -notmatch '^Pandipak-Update ([a-f0-9]{64}) ([a-f0-9]{64}) ([a-f0-9]{64})$') { continue }
-            $from,$to,$sha = $Matches[1],$Matches[2],$Matches[3]
-            if ($steps.ContainsKey($from)) { throw 'Two releases claim the same starting version. Contact the host.' }
-            $steps[$from] = @{ Tag=$release.tag_name; Next=$to; Sha=$sha }
-            $versions[$release.tag_name] = $to
-        }
+foreach ($release in $index.releases) {
+    if ($release.tag -notmatch '^[a-zA-Z0-9][a-zA-Z0-9._-]*$') { throw 'Invalid release tag.' }
+    foreach ($entry in $release.steps) {
+        if ($entry -notmatch '^([a-f0-9]{64}) ([a-f0-9]{64}) ([a-f0-9]{64})$') { throw 'Invalid release checksum entry.' }
+        $from,$to,$sha = $Matches[1],$Matches[2],$Matches[3]
+        if ($steps.ContainsKey($from)) { throw 'Two releases claim the same starting version. Contact the host.' }
+        $steps[$from] = @{ Tag=$release.tag; Next=$to; Sha=$sha }
+        $versions[$release.tag] = $to
     }
-    if ($releases.Count -lt 100) { break }
 }
 if (!$versions.ContainsKey($latest)) { throw 'Latest release has no verified update metadata.' }
 $current = Get-Checksum $receipt
