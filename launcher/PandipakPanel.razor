@@ -7,6 +7,10 @@
             <p>Install the group's player mods into this SPT 4.1.6 folder.</p>
             <code>@Pandipak.Root</code>
             <button class="pp-button pp-install" disabled="@busy" @onclick="Apply">Install Pandipak</button>
+            @if (launcherUpdate is not null)
+            {
+                <button class="pp-button pp-gold" disabled="@busy" @onclick="UpdateLauncher">Update launcher · @launcherUpdate.Version</button>
+            }
             <div role="status">@message</div>
         </section>
     </main>
@@ -14,8 +18,12 @@
 else
 {
     <div class="pp-toolbar">
-        <button class="pp-button @(available ? "pp-gold" : "")" disabled="@(busy || Pandipak.Managed)"
+        <button class="pp-button @(available ? "pp-gold" : "")" disabled="@busy"
                 @onclick="Primary">@(available ? $"Update Pandipak · {version}" : "Check for updates")</button>
+        @if (launcherUpdate is not null)
+        {
+            <button class="pp-button pp-gold" disabled="@busy" @onclick="UpdateLauncher">Update launcher · @launcherUpdate.Version</button>
+        }
         <span role="status">@message</span>
     </div>
     <div class="pp-game" inert="@applying">@ChildContent</div>
@@ -37,13 +45,13 @@ else
     [Parameter] public RenderFragment? ChildContent { get; set; }
     bool fresh = !Pandipak.Managed && !File.Exists(Pandipak.Receipt);
     bool busy, applying, available;
+    LauncherUpdate.Release? launcherUpdate;
     string message = "", version = "";
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
         Launcher.App.MainWindow.SetMinimized(false);
-        if (Pandipak.Managed) message="Host-managed installation";
-        else if (!fresh) await Check();
+        await Check();
         StateHasChanged();
     }
     Task Primary() => available ? Apply() : Check();
@@ -52,11 +60,28 @@ else
         if (busy) return;
         busy=true; available=false; message="Checking…"; StateHasChanged();
         try {
-            var plan=await Pandipak.Check();
-            version=plan.Version; available=plan.Steps.Count>0;
-            message=available ? "Update available" : $"Pandipak {version} · up to date";
+            if (fresh) message="";
+            else
+            {
+                var plan=await Pandipak.Check();
+                version=plan.Version; available=!Pandipak.Managed && plan.Steps.Count>0;
+                message=Pandipak.Managed ? $"Latest player pack {version} · host-managed"
+                    : available ? "Update available" : $"Pandipak {version} · up to date";
+            }
         } catch(Exception e){ message=e.Message; }
+        try { launcherUpdate=await LauncherUpdate.Check(); }
+        catch(Exception) { launcherUpdate=null; message=(message+" · Could not check launcher version").TrimStart(' ', '·'); }
         finally{ busy=false; StateHasChanged(); }
+    }
+    async Task UpdateLauncher()
+    {
+        if (busy || launcherUpdate is null) return;
+        busy=true; message="Downloading launcher…"; StateHasChanged();
+        try {
+            var progress = new Progress<string>(s=>{_ = InvokeAsync(()=>{message=s; StateHasChanged();});});
+            await LauncherUpdate.Install(launcherUpdate, progress);
+        } catch(Exception e){ message=e.Message; }
+        finally {busy=false; StateHasChanged();}
     }
     async Task Apply()
     {

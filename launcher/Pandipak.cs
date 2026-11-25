@@ -119,6 +119,7 @@ internal static class Pandipak
             }
         }
         if (latest is null) throw new InvalidDataException("The latest pack version is missing.");
+        if (Managed) return new(index.Latest, []);
         var current = await Hash(Receipt);
         var path = new List<Step>();
         while (current != latest)
@@ -130,7 +131,7 @@ internal static class Pandipak
         return new(index.Latest,path);
     }
 
-    static async Task Download(string url, string sha, string path, IProgress<string> progress)
+    internal static async Task Download(string url, string sha, string path, IProgress<string> progress)
     {
         using var reply = await Web.GetAsync(url,HttpCompletionOption.ResponseHeadersRead);
         reply.EnsureSuccessStatusCode();

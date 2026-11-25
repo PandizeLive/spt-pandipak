@@ -17,7 +17,7 @@ def build(source, out, dotnet):
                         ignore=shutil.ignore_patterns("bin","obj"))
     shutil.copy2(source/"Build.props",tree/"Build.props")
     ui=tree/"SPTushonka.Launcher"
-    for name in ("Pandipak.cs","PandipakPanel.razor"):
+    for name in ("Pandipak.cs","PandipakPanel.razor","LauncherUpdate.cs"):
         shutil.copy2(HERE/name,ui/name)
     (ui/"App.razor").write_text("<PandipakPanel><Routes/></PandipakPanel>\n",encoding="utf8")
     def replace(path, old, new):
