@@ -1,7 +1,6 @@
 param([string]$Game)
 $ErrorActionPreference = 'Stop'
 $repo = 'PandizeLive/spt-pandipak'
-if (!(Get-Command gh -ErrorAction SilentlyContinue)) { throw 'Install GitHub CLI from https://cli.github.com and run gh auth login once.' }
 if (!$Game) {
     Add-Type -AssemblyName System.Windows.Forms
     $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
@@ -12,11 +11,6 @@ if (!$Game) {
 $Game = (Resolve-Path -LiteralPath $Game).Path
 $receipt = Join-Path $Game '.msi-player-pack/installed.json'
 if (!(Test-Path -LiteralPath $receipt)) { throw 'Run the full Pandipak player installer first.' }
-function Read-ReleaseApi([string]$Route, [string]$Filter) {
-    $lines = & gh api --hostname github.com --paginate "repos/$repo/releases$Route" --jq $Filter
-    if ($LASTEXITCODE) { throw 'GitHub access failed. Accept the private repo invitation and run gh auth login.' }
-    return $lines
-}
 function Get-Checksum([string]$Path) {
     $algorithm = [Security.Cryptography.SHA256]::Create()
     try {
@@ -25,18 +19,26 @@ function Get-Checksum([string]$Path) {
         finally { $stream.Dispose() }
     } finally { $algorithm.Dispose() }
 }
-$latest = Read-ReleaseApi '/latest' '.tag_name'
+$web = New-Object System.Net.WebClient
+$web.Headers['User-Agent'] = 'Pandipak-Windows-Updater'
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+$api = "https://api.github.com/repos/$repo/releases"
+$latest = ($web.DownloadString("$api/latest") | ConvertFrom-Json).tag_name
 $versions = @{}
 $steps = @{}
-foreach ($line in (Read-ReleaseApi '?per_page=100' '.[] | select(.draft == false and .prerelease == false) | {tag: .tag_name, body: .body} | @json')) {
-    $release = $line | ConvertFrom-Json
-    foreach ($entry in ($release.body -split '\r?\n')) {
-        if ($entry -notmatch '^Pandipak-Update ([a-f0-9]{64}) ([a-f0-9]{64}) ([a-f0-9]{64})$') { continue }
-        $from,$to,$sha = $Matches[1],$Matches[2],$Matches[3]
-        if ($steps.ContainsKey($from)) { throw 'Two releases claim the same starting version. Contact the host.' }
-        $steps[$from] = @{ Tag=$release.tag; Next=$to; Sha=$sha }
-        $versions[$release.tag] = $to
+for ($page = 1; ; $page++) {
+    $releases = $web.DownloadString("${api}?per_page=100&page=$page") | ConvertFrom-Json
+    foreach ($release in $releases) {
+        if ($release.draft -or $release.prerelease) { continue }
+        foreach ($entry in ($release.body -split '\r?\n')) {
+            if ($entry -notmatch '^Pandipak-Update ([a-f0-9]{64}) ([a-f0-9]{64}) ([a-f0-9]{64})$') { continue }
+            $from,$to,$sha = $Matches[1],$Matches[2],$Matches[3]
+            if ($steps.ContainsKey($from)) { throw 'Two releases claim the same starting version. Contact the host.' }
+            $steps[$from] = @{ Tag=$release.tag_name; Next=$to; Sha=$sha }
+            $versions[$release.tag_name] = $to
+        }
     }
+    if ($releases.Count -lt 100) { break }
 }
 if (!$versions.ContainsKey($latest)) { throw 'Latest release has no verified update metadata.' }
 $current = Get-Checksum $receipt
@@ -50,9 +52,9 @@ while ($current -ne $versions[$latest]) {
     [void][IO.Directory]::CreateDirectory($temp)
     try {
         Write-Host "Downloading $($step.Tag)..."
-        & gh release download $step.Tag --repo $repo --pattern 'Pandipak-update.zip' --dir $temp
-        if ($LASTEXITCODE) { throw 'Release download failed.' }
         $zip = Join-Path $temp 'Pandipak-update.zip'
+        $tag = [Uri]::EscapeDataString($step.Tag)
+        $web.DownloadFile("https://github.com/$repo/releases/download/$tag/Pandipak-update.zip", $zip)
         if ((Get-Checksum $zip) -ne $step.Sha) { throw 'Release checksum mismatch.' }
         $kit = Join-Path $temp 'kit'
         Add-Type -AssemblyName System.IO.Compression.FileSystem

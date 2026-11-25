@@ -47,10 +47,18 @@ def main():
                 payload.append("files/"+rel)
                 if row["mode"]=="file": print("Changed file:",rel)
         payload += [k for k in new.namelist() if k.startswith(("runtime/","notices/"))]
-        payload += ["setup.py","manifest.json","Install or update.cmd","Start here.txt"]
+        if "server-address.txt" not in new.namelist():
+            raise ValueError("Rebuild the group installer with separate host settings before publishing.")
+        endpoint = new.read("server-address.txt").decode("utf8").strip()
+        host = endpoint.rsplit(":", 1)[0].strip("[]")
+        if not host:
+            raise ValueError("Missing host address in the group installer.")
+        payload += ["setup.py","manifest.json"]
         with zipfile.ZipFile(path,"w",zipfile.ZIP_DEFLATED,compresslevel=1) as out:
             for key in payload:
                 content=new.read(key)
+                if any(host.encode(encoding) in content for encoding in ("utf8","utf-16le")):
+                    raise ValueError("Group host address in public payload: "+key)
                 if key.startswith("files/") and hashlib.sha256(content).hexdigest()!=after["files"][key[6:]]["sha"]:
                     raise ValueError("Hash mismatch in approved installer: "+key)
                 out.writestr(key,content)
@@ -70,8 +78,8 @@ def main():
     if args.publish:
         def gh(*arguments):
             return subprocess.check_output(["gh",*arguments],text=True).strip()
-        if gh("repo","view",REPO,"--json","visibility","--jq",".visibility")!="PRIVATE":
-            raise ValueError("Expected a private repository.")
+        if gh("repo","view",REPO,"--json","visibility","--jq",".visibility")!="PUBLIC":
+            raise ValueError("Expected the public player update repository.")
         releases=json.loads(gh("api",f"repos/{REPO}/releases?per_page=100"))
         if releases:
             latest=json.loads(gh("api",f"repos/{REPO}/releases/latest"))
