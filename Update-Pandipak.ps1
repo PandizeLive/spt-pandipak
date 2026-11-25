@@ -17,6 +17,14 @@ function Read-ReleaseApi([string]$Route, [string]$Filter) {
     if ($LASTEXITCODE) { throw 'GitHub access failed. Accept the private repo invitation and run gh auth login.' }
     return $lines
 }
+function Get-Checksum([string]$Path) {
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [IO.File]::OpenRead($Path)
+        try { return [BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace('-', '').ToLowerInvariant() }
+        finally { $stream.Dispose() }
+    } finally { $algorithm.Dispose() }
+}
 $latest = Read-ReleaseApi '/latest' '.tag_name'
 $versions = @{}
 $steps = @{}
@@ -31,7 +39,7 @@ foreach ($line in (Read-ReleaseApi '?per_page=100' '.[] | select(.draft == false
     }
 }
 if (!$versions.ContainsKey($latest)) { throw 'Latest release has no verified update metadata.' }
-$current = (Get-FileHash -LiteralPath $receipt).Hash.ToLowerInvariant()
+$current = Get-Checksum $receipt
 $seen = @{}
 while ($current -ne $versions[$latest]) {
     if ($seen.ContainsKey($current) -or !$steps.ContainsKey($current)) { throw 'This pack has no update path. Run the current full installer.' }
@@ -45,12 +53,13 @@ while ($current -ne $versions[$latest]) {
         & gh release download $step.Tag --repo $repo --pattern 'Pandipak-update.zip' --dir $temp
         if ($LASTEXITCODE) { throw 'Release download failed.' }
         $zip = Join-Path $temp 'Pandipak-update.zip'
-        if ((Get-FileHash -LiteralPath $zip).Hash -ne $step.Sha) { throw 'Release checksum mismatch.' }
+        if ((Get-Checksum $zip) -ne $step.Sha) { throw 'Release checksum mismatch.' }
         $kit = Join-Path $temp 'kit'
-        Expand-Archive -LiteralPath $zip -DestinationPath $kit
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [IO.Compression.ZipFile]::ExtractToDirectory($zip, $kit)
         & "$kit/runtime/python.exe" -I "$kit/setup.py" $Game
         if ($LASTEXITCODE) { throw 'Pack verification failed. See the installer message above.' }
-        $current = (Get-FileHash -LiteralPath $receipt).Hash.ToLowerInvariant()
+        $current = Get-Checksum $receipt
         if ($current -ne $step.Next) { throw 'Installed receipt differs from the published release.' }
     } finally {
         $resolved = (Resolve-Path -LiteralPath $temp).Path
