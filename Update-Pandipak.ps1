@@ -10,7 +10,6 @@ if (!$Game) {
 }
 $Game = (Resolve-Path -LiteralPath $Game).Path
 $receipt = Join-Path $Game '.msi-player-pack/installed.json'
-if (!(Test-Path -LiteralPath $receipt)) { throw 'Run the full Pandipak player installer first.' }
 function Get-Checksum([string]$Path) {
     $algorithm = [Security.Cryptography.SHA256]::Create()
     try {
@@ -37,7 +36,17 @@ foreach ($release in $index.releases) {
     }
 }
 if (!$versions.ContainsKey($latest)) { throw 'Latest release has no verified update metadata.' }
-$current = Get-Checksum $receipt
+if (Test-Path -LiteralPath $receipt) {
+    $current = Get-Checksum $receipt
+} else {
+    $base = $web.DownloadString("https://raw.githubusercontent.com/$repo/main/full-install.json") | ConvertFrom-Json
+    if (!$base.url.StartsWith("https://github.com/$repo/releases/download/", [StringComparison]::Ordinal) -or
+        $base.sha256 -notmatch '^[a-f0-9]{64}$' -or $base.receipt -notmatch '^[a-f0-9]{64}$') {
+        throw 'Invalid full install metadata.'
+    }
+    $current = 'fresh'
+    $steps[$current] = @{ Tag='Pandipak'; Next=$base.receipt; Sha=$base.sha256; Url=$base.url }
+}
 $seen = @{}
 while ($current -ne $versions[$latest]) {
     if ($seen.ContainsKey($current) -or !$steps.ContainsKey($current)) { throw 'This pack has no update path. Run the current full installer.' }
@@ -50,12 +59,15 @@ while ($current -ne $versions[$latest]) {
         Write-Host "Downloading $($step.Tag)..."
         $zip = Join-Path $temp 'Pandipak-update.zip'
         $tag = [Uri]::EscapeDataString($step.Tag)
-        $web.DownloadFile("https://github.com/$repo/releases/download/$tag/Pandipak-update.zip", $zip)
+        $url = "https://github.com/$repo/releases/download/$tag/Pandipak-update.zip"
+        $entry = 'setup.py'
+        if ($current -eq 'fresh') { $url = $step.Url; $entry = 'full_install.py' }
+        $web.DownloadFile($url, $zip)
         if ((Get-Checksum $zip) -ne $step.Sha) { throw 'Release checksum mismatch.' }
         $kit = Join-Path $temp 'kit'
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         [IO.Compression.ZipFile]::ExtractToDirectory($zip, $kit)
-        & "$kit/runtime/python.exe" -I "$kit/setup.py" $Game
+        & "$kit/runtime/python.exe" -I -u "$kit/$entry" $Game
         if ($LASTEXITCODE) { throw 'Pack verification failed. See the installer message above.' }
         $current = Get-Checksum $receipt
         if ($current -ne $step.Next) { throw 'Installed receipt differs from the published release.' }

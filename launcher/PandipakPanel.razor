@@ -1,0 +1,73 @@
+@namespace SPTarkov.Launcher
+@if (fresh)
+{
+    <main class="pp-welcome">
+        <section>
+            <h1>Install Pandipak</h1>
+            <p>Install the group's player mods into this SPT 4.1.6 folder.</p>
+            <code>@Pandipak.Root</code>
+            <button class="pp-button pp-install" disabled="@busy" @onclick="Apply">Install Pandipak</button>
+            <div role="status">@message</div>
+        </section>
+    </main>
+}
+else
+{
+    <div class="pp-toolbar">
+        <button class="pp-button @(available ? "pp-gold" : "")" disabled="@(busy || Pandipak.Managed)"
+                @onclick="Primary">@(available ? $"Update Pandipak · {version}" : "Check for updates")</button>
+        <span role="status">@message</span>
+    </div>
+    <div class="pp-game" inert="@applying">@ChildContent</div>
+}
+<style>
+    .pp-toolbar{position:absolute;top:5px;left:74px;right:16px;height:40px;display:flex;align-items:center;gap:4px;z-index:3;font:13px Roboto,Arial,sans-serif}
+    .pp-toolbar span,.pp-welcome [role=status]{color:#ccc;font-size:13px;overflow-wrap:anywhere}
+    .pp-toolbar span{margin-left:7px;overflow:auto;max-height:40px}
+    .pp-game .mud-main-content{padding-top:50px!important}
+    .pp-button{background:#262326;color:#eee;border:1px solid #514c48;border-radius:3px;padding:6px 13px;cursor:pointer;font:600 14px Roboto,Arial,sans-serif}
+    .pp-button:disabled{opacity:.62;cursor:default}
+    .pp-gold,.pp-install{border:2px solid #e0b95e;box-shadow:0 0 9px #c2974090;color:#f5d58a}
+    .pp-welcome{min-height:100vh;display:grid;place-items:center;background:#151416;color:#eee;font:16px Roboto,Arial,sans-serif}
+    .pp-welcome section{width:min(540px,90vw);border:1px solid #514c48;background:#211f22;padding:28px}
+    .pp-welcome h1{font-size:28px}.pp-welcome p{margin:10px 0}.pp-welcome code{display:block;overflow-wrap:anywhere;color:#c4beb8}
+    .pp-install{display:block;margin:22px 0 12px}
+</style>
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    bool fresh = !Pandipak.Managed && !File.Exists(Pandipak.Receipt);
+    bool busy, applying, available;
+    string message = "", version = "";
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        Launcher.App.MainWindow.SetMinimized(false);
+        if (Pandipak.Managed) message="Host-managed installation";
+        else if (!fresh) await Check();
+        StateHasChanged();
+    }
+    Task Primary() => available ? Apply() : Check();
+    async Task Check()
+    {
+        if (busy) return;
+        busy=true; available=false; message="Checking…"; StateHasChanged();
+        try {
+            var plan=await Pandipak.Check();
+            version=plan.Version; available=plan.Steps.Count>0;
+            message=available ? "Update available" : $"Pandipak {version} · up to date";
+        } catch(Exception e){ message=e.Message; }
+        finally{ busy=false; StateHasChanged(); }
+    }
+    async Task Apply()
+    {
+        if (busy) return;
+        applying=busy=true; message="Preparing download…"; StateHasChanged();
+        var progress=new Progress<string>(s=>{_ = InvokeAsync(()=>{message=s; StateHasChanged();});});
+        try {
+            await Pandipak.Apply(fresh,progress);
+            fresh=false; available=false; message="Pandipak installed";
+        } catch(Exception e){ message=e.Message; return; }
+        finally {applying=busy=false; StateHasChanged();}
+        await Check();
+    }
+}
