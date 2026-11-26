@@ -106,7 +106,12 @@ def build(args):
                                "Choose an SPT 4.1.6 guest installation. Enter your host's connection details privately.\r\n")
                 elif entry not in backport_files and entry not in {"sources.json", "full_install.py"}:
                     copy_entry(source, z, entry)
-            z.write(Path(__file__).with_name("full_install.py"), "full_install.py")
+            installer = Path(__file__).resolve().parents[1]/"installer"
+            z.write(installer/"full_install.py", "full_install.py")
+            if args.bundles:
+                if "bundle_cache.py" not in z.namelist():
+                    z.write(installer/"bundle_cache.py","bundle_cache.py")
+                z.write(args.bundles,"bundle-cache.json")
             z.writestr("sources.json", json.dumps([] if args.complete else batches["Misc"], separators=(",", ":")))
             z.writestr("volumes.json", json.dumps(volumes, separators=(",", ":")))
         base = summary(misc, args.tag)
@@ -120,5 +125,6 @@ if __name__ == "__main__":
     for field in ("kit", "capsule", "locations", "out"):
         parser.add_argument(field, type=Path)
     parser.add_argument("tag")
+    parser.add_argument("--bundles",type=Path,help="Verified remote launcher bundle recipe")
     parser.add_argument("--complete", action="store_true", help="Include all mod bytes for a complete offline kit.")
     build(parser.parse_args())

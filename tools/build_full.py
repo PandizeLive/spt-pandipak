@@ -83,7 +83,7 @@ def solid_parts(path,members,seven):
     return parts
 
 def build(kit,recipe,locations,out,tag,seven):
-    base=Path(__file__).resolve().parent
+    base=Path(__file__).resolve().parents[1]/"installer"
     out.mkdir(parents=True,exist_ok=True)
     sources=[]
     archive_hashes={}
@@ -115,6 +115,7 @@ def build(kit,recipe,locations,out,tag,seven):
                 raise ValueError("Unaccounted third-party file: "+rel)
             z.writestr("files/"+rel,original.read("files/"+rel))
         z.write(base/"full_install.py","full_install.py")
+        z.write(base/"bundle_cache.py","bundle_cache.py")
         z.writestr("sources.json",json.dumps(sources,separators=(",",":")))
         z.writestr("archive-hashes.json",json.dumps(archive_hashes,separators=(",",":")))
     with capsule.open("rb") as f:sha=hashlib.file_digest(f,"sha256").hexdigest()

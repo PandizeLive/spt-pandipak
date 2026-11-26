@@ -200,6 +200,11 @@ def main(game):
     cache=Path(os.environ["LOCALAPPDATA"])/"SPTpp"/"Downloads"
     cache.mkdir(parents=True,exist_ok=True)
     fetched=set()
+    if (KIT/"bundle-cache.json").is_file():
+        module = importlib.util.spec_from_file_location("bundle_cache", KIT/"bundle_cache.py")
+        bundle_cache = importlib.util.module_from_spec(module)
+        module.loader.exec_module(bundle_cache)
+        bundle_cache.install(setup.read_json(KIT/"bundle-cache.json"), game, cache, fetched, fetch, setup)
     if (KIT/"volumes.json").is_file():
         volumes = setup.read_json(KIT/"volumes.json")
         if [v["name"] for v in volumes] != ["Backports1", "Backports2", "Backports3"]:

@@ -6,7 +6,7 @@
 
 Open the EXE and select your SPT 4.1.6 player folder (EFT build 40743). If you need SPT, choose the official installer option and use your own Tarkov installation. After installing SPT, select its folder.
 
-Click **Install Pandipak**. The launcher prepares **Backports1**, **Backports2**, **Backports3** and **Misc** automatically. Allow about 6 GB of downloads for the player pack, in addition to the base game. All four groups use the same release manifest. The installer checks the player files before applying them. Enter the connection details your host gives you in the normal SPT server selector.
+Click **Install Pandipak**. The launcher prepares **Backports1**, **Backports2**, **Backports3** and **Misc** automatically. The installer also fills the local cache for remote play. The SPT 4.1.6 bundle set occupies about 17 GiB once installed. Downloads and temporary extraction require additional space. Keep the game folder between updates so verified files can be reused. All four groups use the same release manifest. The installer checks the player files before applying them. Enter the connection details your host gives you in the normal SPT server selector.
 
 The public release fetches third-party mod files directly from their pinned author downloads. [Player mod credits and download links](CREDITS.md)
 
@@ -18,23 +18,4 @@ Launcher 1.0.0 users can close it and replace the EXE once using the download ab
 
 If a mod author removes a pinned download or its contents change, first installation stops and identifies the source. Retry after the host restores a verified source.
 
-## Publish a player update
-
-Keep the last published full installer. Build and test the next full installer, then use Python 3.11 or later to prepare the release.
-
-```powershell
-python publish.py "Previous player installer.zip" "New player installer.zip" v1.2.0 --out release-build
-```
-
-Review the changed files for public distribution and test the generated update. Run the command with `--publish` using the publisher's authenticated GitHub CLI to upload it. Players who miss a release can catch up on the next run.
-
-### Rebuild the first-install volumes
-
-Run the following in the repository with Python 3.11 or newer. The recipe maps player files to pinned author archives. The locations file maps archive names to local paths and stays on the build machine.
-
-```powershell
-python launcher/build_full.py "Player installer.zip" recipe.json locations.json staging launcher-v1.0.0 --seven "C:/Program Files/7-Zip/7z.exe"
-python launcher/build_volumes.py "Player installer.zip" staging/Pandipak-full.zip staging/local-validation.json volumes launcher-v1.0.0
-```
-
-The default build uses pinned author downloads for third-party files. Add `--complete` to the second command to produce an offline kit containing the mod files. Both builds use the same file checksums. Keep the four ZIPs from each build together. Publish the matching `full-install.json` with its release, and keep the mod-update release marked latest so older updaters can still find their index.
+Maintainers can find the build and verification steps in the [release guide](docs/releasing.md).

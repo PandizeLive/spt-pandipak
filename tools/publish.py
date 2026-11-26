@@ -8,7 +8,7 @@ import subprocess
 import zipfile
 
 REPO = "PandizeLive/spt-pandipak"
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parents[1]
 
 def fingerprint(manifest):
     receipt = (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode()

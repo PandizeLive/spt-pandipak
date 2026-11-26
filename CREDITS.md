@@ -4,6 +4,8 @@ These are the original project listings and pinned releases used by the SPT 4.1.
 
 | Mod | Credits | Pinned download |
 |---|---|---|
+| [Halloween Background Backport](https://sp-mod.com/mod/3235/halloween-background-backport) | amos | [1.2.0](https://sp-mod.com/mod/download/3235/halloween-background-backport/1.2.0) |
+| [Total Optimization](https://sp-mod.com/mod/3372/total-optimization) | Ravein | [1.8.0](https://sp-mod.com/mod/download/3372/total-optimization/1.8.0) |
 | [ABPS - Acid's Bot Placement System](https://sp-mod.com/mod/2097/abps-acids-bot-placement-system) | acidphantasm | [2.1.0](https://sp-mod.com/mod/download/2097/abps-acids-bot-placement-system/2.1.0) |
 | [All Quests Checkmarks](https://sp-mod.com/mod/2025/all-quests-checkmarks) | ZGFueDkx | [1.4.1](https://sp-mod.com/mod/download/2025/all-quests-checkmarks/1.4.1) |
 | [BigBrain](https://sp-mod.com/mod/902/bigbrain) | DrakiaXYZ | [1.5.0](https://sp-mod.com/mod/download/902/bigbrain/1.5.0) |
